@@ -12,6 +12,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # MongoDB Atlas connection
+load_dotenv(dotenv_path=os.path.join("env", ".env"))
 client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["webhook_db"]
 collection = db["events"]
