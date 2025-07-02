@@ -7,7 +7,7 @@ import requests
 app = Flask(__name__)
 
 # MongoDB Atlas connection
-client = MongoClient("mongodb+srv://sriranganathbesta:Ranga6300@cluster0.0uukzja.mongodb.net/")
+client = MongoClient("mongodb+srv://rambo:abc1234@cluster0.0uukzja.mongodb.net/")
 db = client["webhook_db"]
 collection = db["events"]
 
