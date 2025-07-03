@@ -1,10 +1,10 @@
-from flask import Flask, request, jsonify, render_template, redirect,url_for
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 from pymongo import MongoClient
 from datetime import datetime
 import uuid
 import requests
 import os
-from pymongo import MongoClient
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,23 +17,7 @@ client = MongoClient(MONGO_URI)
 db = client["webhook_db"]
 collection = db["events"]
 
-
-@app.route('/events')
-def get_events():
-    docs = collection.find().sort('timestamp', -1).limit(10)
-    events = []
-    for doc in docs:
-        if doc['action'] == 'PUSH':
-            msg = f"{doc['author']} pushed to {doc['to_branch']} on {doc['timestamp']}"
-        elif doc['action'] == 'PULL_REQUEST':
-            msg = f"{doc['author']} submitted a pull request from {doc['from_branch']} to {doc['to_branch']} on {doc['timestamp']}"
-        elif doc['action'] == 'MERGE':
-            msg = f"{doc['author']} merged branch {doc['from_branch']} to {doc['to_branch']} on {doc['timestamp']}"
-        else:
-            continue
-        events.append(msg)
-    return jsonify(events)
-
+# Home route: Show last 10 events in HTML
 @app.route('/')
 def index():
     docs = collection.find().sort('timestamp', -1).limit(10)
@@ -50,11 +34,30 @@ def index():
         events.append(msg)
     return render_template('index.html', events=events)
 
+# JSON endpoint for frontend polling every 15 seconds
+@app.route('/events')
+def get_events():
+    docs = collection.find().sort('timestamp', -1).limit(10)
+    events = []
+    for doc in docs:
+        if doc['action'] == 'PUSH':
+            msg = f"{doc['author']} pushed to {doc['to_branch']} on {doc['timestamp']}"
+        elif doc['action'] == 'PULL_REQUEST':
+            msg = f"{doc['author']} submitted a pull request from {doc['from_branch']} to {doc['to_branch']} on {doc['timestamp']}"
+        elif doc['action'] == 'MERGE':
+            msg = f"{doc['author']} merged branch {doc['from_branch']} to {doc['to_branch']} on {doc['timestamp']}"
+        else:
+            continue
+        events.append(msg)
+    return jsonify(events)
+
+# GitHub Webhook endpoint
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    print("Webhook triggered!", file=sys.stderr)
     event_type = request.headers.get('X-GitHub-Event')
     data = request.json
-    timestamp = datetime.utcnow().strftime('%#d %B %Y - %#I:%M %p UTC')
+    timestamp = datetime.utcnow().strftime('%d %B %Y - %I:%M %p UTC')
     request_id = str(uuid.uuid4())
     author = data.get('sender', {}).get('login', 'Unknown')
 
@@ -86,6 +89,7 @@ def webhook():
 
     return jsonify({'status': 'success'}), 200
 
+# Trigger manually (for testing)
 @app.route('/trigger', methods=['GET', 'POST'])
 def trigger_webhook():
     if request.method == 'POST':
@@ -97,9 +101,7 @@ def trigger_webhook():
         if event_type == 'push':
             data = {
                 "ref": f"refs/heads/{to_branch}",
-                "sender": {
-                    "login": author
-                }
+                "sender": {"login": author}
             }
             headers = {"X-GitHub-Event": "push"}
 
@@ -110,9 +112,7 @@ def trigger_webhook():
                     "head": {"ref": from_branch},
                     "base": {"ref": to_branch}
                 },
-                "sender": {
-                    "login": author
-                }
+                "sender": {"login": author}
             }
             headers = {"X-GitHub-Event": "pull_request"}
 
@@ -124,28 +124,24 @@ def trigger_webhook():
                     "base": {"ref": to_branch},
                     "merged": True
                 },
-                "sender": {
-                    "login": author
-                }
+                "sender": {"login": author}
             }
             headers = {"X-GitHub-Event": "pull_request"}
 
         else:
-            return "Invalid event", 400
+            return "Invalid event type", 400
 
-        # Send POST to webhook endpoint
+        # Send request to live webhook endpoint
         requests.post(
-            'http://127.0.0.1:5000/webhook',
+            'https://webhook-repo-nmzl.onrender.com/webhook',
             json=data,
             headers={**headers, "Content-Type": "application/json"}
         )
 
-        # ✅ Redirect to the homepage after success
         return redirect(url_for('index'))
 
     return render_template('trigger.html')
 
-
-
+# Start Flask app
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=False)
