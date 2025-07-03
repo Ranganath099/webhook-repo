@@ -17,7 +17,6 @@ client = MongoClient(MONGO_URI)
 db = client["webhook_db"]
 collection = db["events"]
 
-# Home route: Show last 10 events
 @app.route('/')
 def index():
     docs = collection.find().sort('timestamp_raw', -1).limit(10)
@@ -34,7 +33,7 @@ def index():
         events.append(msg)
     return render_template('index.html', events=events)
 
-# JSON polling endpoint
+
 @app.route('/events')
 def get_events():
     docs = collection.find().sort('timestamp_raw', -1).limit(10)
@@ -83,7 +82,6 @@ def webhook():
     else:
         return jsonify({'status': 'ignored'}), 200
 
-    # Store event
     collection.insert_one({
         'request_id': request_id,
         'author': author,
