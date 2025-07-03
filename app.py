@@ -6,7 +6,6 @@ import requests
 import os
 import sys
 from dotenv import load_dotenv
-from dateutil import parser  
 
 load_dotenv()
 
@@ -18,7 +17,7 @@ client = MongoClient(MONGO_URI)
 db = client["webhook_db"]
 collection = db["events"]
 
-# Home route: Show last 10 events in HTML
+# Home route: Show last 10 events
 @app.route('/')
 def index():
     docs = collection.find().sort('timestamp_raw', -1).limit(10)
@@ -35,7 +34,7 @@ def index():
         events.append(msg)
     return render_template('index.html', events=events)
 
-# JSON endpoint for polling
+# JSON polling endpoint
 @app.route('/events')
 def get_events():
     docs = collection.find().sort('timestamp_raw', -1).limit(10)
@@ -52,7 +51,7 @@ def get_events():
         events.append(msg)
     return jsonify(events)
 
-# Webhook endpoint
+# Webhook listener
 @app.route('/webhook', methods=['POST'])
 def webhook():
     print("Webhook triggered!", file=sys.stderr)
@@ -60,15 +59,15 @@ def webhook():
     data = request.json
     author = data.get('sender', {}).get('login', 'Unknown')
     action = None
-    raw_time = None
     from_branch = ''
     to_branch = ''
-    request_id = str(uuid.uuid4())  # Always generate a unique ID
+    request_id = str(uuid.uuid4())
+    timestamp_raw = datetime.utcnow()
+    timestamp = timestamp_raw.strftime('%-d %B %Y - %-I:%M %p UTC')
 
     if event_type == 'push':
         to_branch = data.get('ref', '').split('/')[-1]
         action = 'PUSH'
-        raw_time = data.get('head_commit', {}).get('timestamp')
 
     elif event_type == 'pull_request':
         pr = data.get('pull_request', {})
@@ -77,21 +76,12 @@ def webhook():
 
         if data.get('action') == 'opened':
             action = 'PULL_REQUEST'
-            raw_time = pr.get('created_at')
         elif data.get('action') == 'closed' and pr.get('merged'):
             action = 'MERGE'
-            raw_time = pr.get('merged_at')
         else:
             return jsonify({'status': 'ignored'}), 200
     else:
         return jsonify({'status': 'ignored'}), 200
-
-    # Format timestamp
-    try:
-        dt_obj = parser.isoparse(raw_time)
-    except Exception:
-        dt_obj = datetime.utcnow()
-    formatted_time = dt_obj.strftime('%-d %B %Y - %-I:%M %p UTC')
 
     # Store event
     collection.insert_one({
@@ -100,12 +90,13 @@ def webhook():
         'action': action,
         'from_branch': from_branch,
         'to_branch': to_branch,
-        'timestamp': formatted_time,
-        'timestamp_raw': dt_obj
+        'timestamp': timestamp,
+        'timestamp_raw': timestamp_raw
     })
+
     return jsonify({'status': 'success'}), 200
 
-# Manual trigger (for local testing)
+# Manual trigger for local testing
 @app.route('/trigger', methods=['GET', 'POST'])
 def trigger_webhook():
     if request.method == 'POST':
@@ -115,6 +106,7 @@ def trigger_webhook():
         from_branch = request.form.get('from_branch', '')
         now = datetime.utcnow().isoformat()
         unique_id = str(uuid.uuid4())
+
         if event_type == 'push':
             data = {
                 "ref": f"refs/heads/{to_branch}",
