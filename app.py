@@ -57,24 +57,28 @@ def webhook():
     print("Webhook triggered!", file=sys.stderr)
     event_type = request.headers.get('X-GitHub-Event')
     data = request.json
-    timestamp = datetime.utcnow().strftime('%d %B %Y - %I:%M %p UTC')
-    request_id = str(uuid.uuid4())
+    timestamp = datetime.utcnow().strftime('%-d %B %Y - %-I:%M %p UTC')
     author = data.get('sender', {}).get('login', 'Unknown')
 
     if event_type == 'push':
+        request_id = data.get('after', str(uuid.uuid4()))
         to_branch = data.get('ref', '').split('/')[-1]
         action = 'PUSH'
         from_branch = ''
+
     elif event_type == 'pull_request':
         pr = data.get('pull_request', {})
+        request_id = str(pr.get('id', uuid.uuid4()))
         from_branch = pr.get('head', {}).get('ref')
         to_branch = pr.get('base', {}).get('ref')
+
         if data.get('action') == 'opened':
             action = 'PULL_REQUEST'
         elif data.get('action') == 'closed' and pr.get('merged'):
             action = 'MERGE'
         else:
             return jsonify({'status': 'ignored'}), 200
+
     else:
         return jsonify({'status': 'ignored'}), 200
 
