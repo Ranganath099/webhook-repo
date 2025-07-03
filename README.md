@@ -1,6 +1,6 @@
 # webhook-repo
 ##📘 README.md – Webhook Receiver (Flask + MongoDB)
-##🚀 Webhook Receiver – TechStaX Developer Assessment
+
 - This repository is part of the TechStaX Developer Assessment task. It acts as a webhook receiver for GitHub events like Push, Pull Request, and Merge, and stores these events in MongoDB Atlas.
 
 - The UI fetches the latest webhook events from MongoDB every 15 seconds, and displays them in a clean and minimal format.
