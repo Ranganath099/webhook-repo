@@ -6,6 +6,7 @@ import requests
 import os
 import sys
 from dotenv import load_dotenv
+from dateutil import parser  # for parsing GitHub timestamp strings
 
 load_dotenv()
 
@@ -32,7 +33,6 @@ def index():
             continue
         events.append(msg)
     return render_template('index.html', events=events)
-
 
 @app.route('/events')
 def get_events():
@@ -61,12 +61,12 @@ def webhook():
     from_branch = ''
     to_branch = ''
     request_id = str(uuid.uuid4())
-    timestamp_raw = datetime.utcnow()
-    timestamp = timestamp_raw.strftime('%-d %B %Y - %-I:%M %p UTC')
+    raw_time = None
 
     if event_type == 'push':
-        to_branch = data.get('ref', '').split('/')[-1]
         action = 'PUSH'
+        to_branch = data.get('ref', '').split('/')[-1]
+        raw_time = data.get('head_commit', {}).get('timestamp')
 
     elif event_type == 'pull_request':
         pr = data.get('pull_request', {})
@@ -75,13 +75,25 @@ def webhook():
 
         if data.get('action') == 'opened':
             action = 'PULL_REQUEST'
+            raw_time = pr.get('created_at')
         elif data.get('action') == 'closed' and pr.get('merged'):
             action = 'MERGE'
+            raw_time = pr.get('merged_at')
         else:
             return jsonify({'status': 'ignored'}), 200
     else:
         return jsonify({'status': 'ignored'}), 200
 
+    # Parse timestamp string to datetime object
+    try:
+        dt_obj = parser.isoparse(raw_time)
+    except Exception:
+        dt_obj = datetime.utcnow()
+
+    # Format for UI
+    timestamp = dt_obj.strftime('%-d %B %Y - %-I:%M %p UTC')
+
+    # Store in MongoDB
     collection.insert_one({
         'request_id': request_id,
         'author': author,
@@ -89,12 +101,12 @@ def webhook():
         'from_branch': from_branch,
         'to_branch': to_branch,
         'timestamp': timestamp,
-        'timestamp_raw': timestamp_raw
+        'timestamp_raw': dt_obj
     })
 
     return jsonify({'status': 'success'}), 200
 
-# Manual trigger for local testing
+# Manual testing helper
 @app.route('/trigger', methods=['GET', 'POST'])
 def trigger_webhook():
     if request.method == 'POST':
