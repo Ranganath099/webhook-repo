@@ -6,6 +6,7 @@ import requests
 import os
 import sys
 from dotenv import load_dotenv
+from dateutil import parser  # for ISO timestamp parsing
 
 load_dotenv()
 
@@ -20,7 +21,7 @@ collection = db["events"]
 # Home route: Show last 10 events in HTML
 @app.route('/')
 def index():
-    docs = collection.find().sort('timestamp', -1).limit(10)
+    docs = collection.find().sort('timestamp_raw', -1).limit(10)
     events = []
     for doc in docs:
         if doc['action'] == 'PUSH':
@@ -34,10 +35,10 @@ def index():
         events.append(msg)
     return render_template('index.html', events=events)
 
-# JSON endpoint for frontend polling every 15 seconds
+# JSON endpoint for frontend polling
 @app.route('/events')
 def get_events():
-    docs = collection.find().sort('timestamp', -1).limit(10)
+    docs = collection.find().sort('timestamp_raw', -1).limit(10)
     events = []
     for doc in docs:
         if doc['action'] == 'PUSH':
@@ -57,7 +58,6 @@ def webhook():
     print("Webhook triggered!", file=sys.stderr)
     event_type = request.headers.get('X-GitHub-Event')
     data = request.json
-    timestamp = datetime.utcnow().strftime('%-d %B %Y - %-I:%M %p UTC')
     author = data.get('sender', {}).get('login', 'Unknown')
 
     if event_type == 'push':
@@ -65,6 +65,7 @@ def webhook():
         to_branch = data.get('ref', '').split('/')[-1]
         action = 'PUSH'
         from_branch = ''
+        raw_time = data.get('head_commit', {}).get('timestamp')
 
     elif event_type == 'pull_request':
         pr = data.get('pull_request', {})
@@ -74,13 +75,22 @@ def webhook():
 
         if data.get('action') == 'opened':
             action = 'PULL_REQUEST'
+            raw_time = pr.get('created_at')
         elif data.get('action') == 'closed' and pr.get('merged'):
             action = 'MERGE'
+            raw_time = pr.get('merged_at')
         else:
             return jsonify({'status': 'ignored'}), 200
-
     else:
         return jsonify({'status': 'ignored'}), 200
+
+    # Format timestamp
+    if raw_time:
+        dt_obj = parser.isoparse(raw_time)
+        formatted_time = dt_obj.strftime('%-d %B %Y - %-I:%M %p UTC')
+    else:
+        dt_obj = datetime.utcnow()
+        formatted_time = dt_obj.strftime('%-d %B %Y - %-I:%M %p UTC')
 
     collection.insert_one({
         'request_id': request_id,
@@ -88,7 +98,8 @@ def webhook():
         'action': action,
         'from_branch': from_branch,
         'to_branch': to_branch,
-        'timestamp': timestamp
+        'timestamp': formatted_time,
+        'timestamp_raw': dt_obj  # used for accurate sorting
     })
 
     return jsonify({'status': 'success'}), 200
@@ -105,6 +116,7 @@ def trigger_webhook():
         if event_type == 'push':
             data = {
                 "ref": f"refs/heads/{to_branch}",
+                "head_commit": {"timestamp": datetime.utcnow().isoformat()},
                 "sender": {"login": author}
             }
             headers = {"X-GitHub-Event": "push"}
@@ -113,8 +125,10 @@ def trigger_webhook():
             data = {
                 "action": "opened",
                 "pull_request": {
+                    "id": str(uuid.uuid4()),
                     "head": {"ref": from_branch},
-                    "base": {"ref": to_branch}
+                    "base": {"ref": to_branch},
+                    "created_at": datetime.utcnow().isoformat()
                 },
                 "sender": {"login": author}
             }
@@ -124,9 +138,11 @@ def trigger_webhook():
             data = {
                 "action": "closed",
                 "pull_request": {
+                    "id": str(uuid.uuid4()),
                     "head": {"ref": from_branch},
                     "base": {"ref": to_branch},
-                    "merged": True
+                    "merged": True,
+                    "merged_at": datetime.utcnow().isoformat()
                 },
                 "sender": {"login": author}
             }
@@ -135,7 +151,6 @@ def trigger_webhook():
         else:
             return "Invalid event type", 400
 
-        # Send request to live webhook endpoint
         requests.post(
             'https://webhook-repo-nmzl.onrender.com/webhook',
             json=data,
@@ -146,6 +161,6 @@ def trigger_webhook():
 
     return render_template('trigger.html')
 
-# Start Flask app
+# Run app
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=False)
