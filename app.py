@@ -51,7 +51,7 @@ def get_events():
     return jsonify(events)
 
 # Webhook listener
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     print("Webhook triggered!", file=sys.stderr)
     event_type = request.headers.get('X-GitHub-Event')
