@@ -54,8 +54,17 @@ def get_events():
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     print("Webhook triggered!", file=sys.stderr)
+
+    if request.method == 'GET':
+        return "Webhook endpoint is up", 200
+
+    try:
+        data = request.get_json(force=True)
+    except Exception as e:
+        print("Invalid JSON:", e, file=sys.stderr)
+        return jsonify({'error': 'Invalid JSON'}), 400
+
     event_type = request.headers.get('X-GitHub-Event')
-    data = request.json
     author = data.get('sender', {}).get('login', 'Unknown')
     action = None
     from_branch = ''
@@ -84,16 +93,14 @@ def webhook():
     else:
         return jsonify({'status': 'ignored'}), 200
 
-    # Parse timestamp string to datetime object
+    # Parse timestamp
     try:
         dt_obj = parser.isoparse(raw_time)
     except Exception:
         dt_obj = datetime.utcnow()
 
-    # Format for UI
     timestamp = dt_obj.strftime('%-d %B %Y - %-I:%M %p UTC')
 
-    # Store in MongoDB
     collection.insert_one({
         'request_id': request_id,
         'author': author,
